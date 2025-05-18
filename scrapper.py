@@ -1,3 +1,4 @@
+import re
 from datetime import datetime, date
 from typing import List, Optional, Tuple
 
@@ -126,3 +127,36 @@ def _parse_start_date(start_date: str) -> date:
     start_date = start_date.split(', ')[1]
     day, month, year = start_date.split()
     return date(int(year), month_to_number[month], int(day))
+
+
+def scrape_course(html: str):
+    soup = BeautifulSoup(html, 'html.parser')
+
+    course_type, major = _scrape_type_and_major(soup)
+    teachers = _scrape_teachers(soup)
+
+    return course_type, major, teachers
+
+
+def _scrape_type_and_major(soup: BeautifulSoup) -> tuple[str, str]:
+    pattern = r'https://ava3\.furb\.br/course/index\.php\?categoryid=\d+'
+
+    page_header = soup.find(id="page-header")
+
+    matching_links = page_header.find_all('a', href=re.compile(pattern))
+
+    return matching_links[0].get_text(), matching_links[1].get_text()
+
+
+def _scrape_teachers(soup: BeautifulSoup) -> List[int]:
+    links = soup.select('ul.teachers li a')
+
+    ids = []
+    for link in links:
+        href = link['href']
+
+        match = re.search(r'id=(\d+)', href)
+        if match:
+            ids.append(int(match.group(1)))
+
+    return ids
