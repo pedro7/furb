@@ -8,31 +8,41 @@ from models import User, Course
 
 async def create_tables(pool: Pool) -> None:
     create_user_table_query = '''
-    CREATE TABLE IF NOT EXISTS users (
-        id INTEGER PRIMARY KEY,
-        name VARCHAR(255) NOT NULL,
-        username VARCHAR(255) NOT NULL,
-        email VARCHAR(255) NOT NULL,
-        city VARCHAR(255) NOT NULL,
-        first_access TIMESTAMP,
-        last_access TIMESTAMP
-    )
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY,
+            name VARCHAR(255) NOT NULL,
+            username VARCHAR(255) NOT NULL,
+            email VARCHAR(255) NOT NULL,
+            city VARCHAR(255) NOT NULL,
+            first_access TIMESTAMP,
+            last_access TIMESTAMP
+        )
     '''
 
     create_course_table_query = '''
-    CREATE TABLE IF NOT EXISTS courses (
-        id INTEGER PRIMARY KEY,
-        name VARCHAR(255) NOT NULL,
-        start_date DATE NOT NULL
-    )
+        CREATE TABLE IF NOT EXISTS courses (
+            id INTEGER PRIMARY KEY,
+            name VARCHAR(255) NOT NULL,
+            start_date DATE NOT NULL
+        )
     '''
 
     create_user_courses_table_query = '''
-    CREATE TABLE IF NOT EXISTS user_courses (
-        user_id INTEGER REFERENCES users(id),
-        course_id INTEGER REFERENCES courses(id),
-        PRIMARY KEY (user_id, course_id)
-    )
+        CREATE TABLE IF NOT EXISTS user_courses (
+            user_id INTEGER REFERENCES users(id),
+            course_id INTEGER REFERENCES courses(id),
+            PRIMARY KEY (user_id, course_id)
+        )
+    '''
+
+    alter_user_table_query = '''
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS is_teacher BOOLEAN DEFAULT FALSE NOT NULL;
+    '''
+
+    alter_course_table_query = '''
+        ALTER TABLE courses 
+        ADD COLUMN IF NOT EXISTS type VARCHAR(255),
+        ADD COLUMN IF NOT EXISTS major VARCHAR(255);
     '''
 
     await asyncio.gather(
@@ -40,6 +50,8 @@ async def create_tables(pool: Pool) -> None:
         pool.execute(create_course_table_query)
     )
     await pool.execute(create_user_courses_table_query)
+    await pool.execute(alter_user_table_query)
+    await pool.execute(alter_course_table_query)
 
 
 async def insert_user(pool: Pool, user: User) -> None:
@@ -96,3 +108,30 @@ async def insert_user_courses(pool: Pool, user: User, courses: List[Course]) -> 
             (user.user_id, course.course_id) for course in courses
         ]
     )
+
+
+async def get_course_ids(pool):
+    query = 'SELECT id FROM courses'
+    rows = await pool.fetch(query)
+    return [row['id'] for row in rows]
+
+
+async def update_course(pool, course_id, course_type, course_major):
+    update_query = '''
+        UPDATE courses
+        SET type = $1, major = $2
+        WHERE id = $3;
+    '''
+
+    # Execute the query
+    await pool.execute(update_query, course_type, course_major, course_id)
+
+
+async def update_users_to_teacher(pool, user_ids):
+    update_query = '''
+        UPDATE users
+        SET is_teacher = TRUE
+        WHERE id = ANY($1);
+    '''
+
+    await pool.execute(update_query, user_ids)
