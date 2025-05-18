@@ -8,7 +8,8 @@ import asyncpg
 
 import api
 import postgres
-from scrapper import scrape_profile
+from postgres import get_course_ids
+from scrapper import scrape_profile, scrape_course
 
 AVA3_USERNAME = os.environ['AVA3_USERNAME']
 AVA3_PASSWORD = os.environ['AVA3_PASSWORD']
@@ -38,7 +39,40 @@ async def fetch_and_process_user_profile(
     print(f'\033[92mUser {profile_id} successfully stored.\033[00m')
 
 
-async def main() -> None:
+async def fetch_and_process_course_information(
+        session: aiohttp.ClientSession,
+        login_task: asyncio.Task,
+        pool: asyncpg.Pool,
+        course_id: int
+) -> None:
+    html = await api.get_courses(login_task, session, course_id)
+
+    if "Plano de Ensino" in html:
+        print(f'\033[91mInterlinked with {course_id}.\033[00m')
+        print()
+        return
+
+    if f"id={course_id}" not in html:
+        print(f'\033[91mCourse {course_id} not found.\033[00m')
+        print()
+        return
+
+    try:
+        course_type, major, teachers = scrape_course(html)
+    except Exception as e:
+        print(f'\033[91mError with course {course_id}.\033[00m')
+        return
+
+    await asyncio.gather(
+        postgres.update_course(pool, course_id, course_type, major),
+        postgres.update_users_to_teacher(pool, teachers)
+    )
+    print(f'\033[92mCourse {course_id} successfully updated.\033[00m')
+    print(f'\033[92mTeachers: {teachers}.\033[00m')
+    print()
+
+
+async def main_users() -> None:
     timeout = aiohttp.ClientTimeout(total=None)
     async with aiohttp.ClientSession(timeout=timeout) as session:
         login_task = asyncio.create_task(api.login(AVA3_USERNAME, AVA3_PASSWORD, session))
@@ -59,8 +93,29 @@ async def main() -> None:
             await asyncio.gather(*process_user_task_generator)
 
 
+async def main_courses() -> None:
+    timeout = aiohttp.ClientTimeout(total=None)
+    async with aiohttp.ClientSession(timeout=timeout) as session:
+        login_task = asyncio.create_task(api.login(AVA3_USERNAME, AVA3_PASSWORD, session))
+        async with asyncpg.create_pool(user=POSTGRES_USERNAME, password=POSTGRES_PASSWORD) as pool:
+            await postgres.create_tables(pool)
+            course_ids = await get_course_ids(pool)
+            process_course_task_generator = (
+                asyncio.create_task(
+                    fetch_and_process_course_information(
+                        session,
+                        login_task,
+                        pool,
+                        course_id
+                    )
+                )
+                for course_id in course_ids
+            )
+            await asyncio.gather(*process_course_task_generator)
+
+
 if __name__ == '__main__':
     start_time = time()
-    asyncio.run(main())
+    asyncio.run(main_courses())
     end_time = time()
     print(f'\033[94m\nTotal time: {timedelta(seconds=(end_time - start_time))}.\033[00m')
