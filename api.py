@@ -22,3 +22,13 @@ async def get_profile(login_task: Task, session: ClientSession, profile_id: int)
             f'https://ava3.furb.br/user/profile.php?id={profile_id}', cookies=cookies
     ) as response:
         return await response.text()
+
+
+async def get_courses(login_task: Task, session: ClientSession, course_id: int) -> str:
+    cookies = {
+        'MoodleSession': await login_task
+    }
+    async with session.get(
+            f'https://ava3.furb.br/course/view.php?id={course_id}', cookies=cookies
+    ) as response:
+        return await response.text()
